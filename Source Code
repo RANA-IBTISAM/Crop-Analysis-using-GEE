@@ -1,0 +1,202 @@
+var aoi= table.filterMetadata('DISTRICT','equals','SIALKOT');
+Map.addLayer(aoi,{},'aoi');
+Map.setCenter(74.5229,32.4945,8.5);
+// DATA WITH THE GAP OF 15 DAYS
+var c1= data.filterDate('2023-06-01','2023-06-15')
+.filter(ee.Filter.listContains('transmitterReceiverPolarisation','VH'))
+.filter(ee.Filter.eq('instrumentMode', 'IW'))
+.filter(ee.Filter.or(ee.Filter.eq('orbitProperties_pass','ASCENDING'),ee.Filter.eq('orbitProperties_pass','DESCENDING')))
+.filterBounds(aoi);
+// .mean();
+// Map.addLayer(c,{},'c1');
+var c2= data.filterDate('2023-06-16','2023-06-30')
+.filter(ee.Filter.listContains('transmitterReceiverPolarisation','VH'))
+.filter(ee.Filter.eq('instrumentMode', 'IW'))
+.filter(ee.Filter.or(ee.Filter.eq('orbitProperties_pass','ASCENDING'),ee.Filter.eq('orbitProperties_pass','DESCENDING')))
+.filterBounds(aoi);
+
+var c3= data.filterDate('2023-07-01','2023-07-15')
+.filter(ee.Filter.listContains('transmitterReceiverPolarisation','VH'))
+.filter(ee.Filter.eq('instrumentMode', 'IW'))
+.filter(ee.Filter.or(ee.Filter.eq('orbitProperties_pass','ASCENDING'),ee.Filter.eq('orbitProperties_pass','DESCENDING')))
+.filterBounds(aoi);
+
+var c4= data.filterDate('2023-07-16','2023-07-31')
+.filter(ee.Filter.listContains('transmitterReceiverPolarisation','VH'))
+.filter(ee.Filter.eq('instrumentMode', 'IW'))
+.filter(ee.Filter.or(ee.Filter.eq('orbitProperties_pass','ASCENDING'),ee.Filter.eq('orbitProperties_pass','DESCENDING')))
+.filterBounds(aoi);
+
+var c5= data.filterDate('2023-08-01','2023-08-15')
+.filter(ee.Filter.listContains('transmitterReceiverPolarisation','VH'))
+.filter(ee.Filter.eq('instrumentMode', 'IW'))
+.filter(ee.Filter.or(ee.Filter.eq('orbitProperties_pass','ASCENDING'),ee.Filter.eq('orbitProperties_pass','DESCENDING')))
+.filterBounds(aoi);
+
+var c6= data.filterDate('2023-08-16','2023-08-31')
+.filter(ee.Filter.listContains('transmitterReceiverPolarisation','VH'))
+.filter(ee.Filter.eq('instrumentMode', 'IW'))
+.filter(ee.Filter.or(ee.Filter.eq('orbitProperties_pass','ASCENDING'),ee.Filter.eq('orbitProperties_pass','DESCENDING')))
+.filterBounds(aoi);var c3= data.filterDate('2023-07-01','2023-07-15')
+.filter(ee.Filter.listContains('transmitterReceiverPolarisation','VH'))
+.filter(ee.Filter.eq('instrumentMode', 'IW'))
+.filter(ee.Filter.or(ee.Filter.eq('orbitProperties_pass','ASCENDING'),ee.Filter.eq('orbitProperties_pass','DESCENDING')))
+.filterBounds(aoi);
+
+var c4= data.filterDate('2023-07-16','2023-07-31')
+.filter(ee.Filter.listContains('transmitterReceiverPolarisation','VH'))
+.filter(ee.Filter.eq('instrumentMode', 'IW'))
+.filter(ee.Filter.or(ee.Filter.eq('orbitProperties_pass','ASCENDING'),ee.Filter.eq('orbitProperties_pass','DESCENDING')))
+.filterBounds(aoi);
+
+var c5= data.filterDate('2023-08-01','2023-08-15')
+.filter(ee.Filter.listContains('transmitterReceiverPolarisation','VH'))
+.filter(ee.Filter.eq('instrumentMode', 'IW'))
+.filter(ee.Filter.or(ee.Filter.eq('orbitProperties_pass','ASCENDING'),ee.Filter.eq('orbitProperties_pass','DESCENDING')))
+.filterBounds(aoi);
+
+var c6= data.filterDate('2023-08-16','2023-08-31')
+.filter(ee.Filter.listContains('transmitterReceiverPolarisation','VH'))
+.filter(ee.Filter.eq('instrumentMode', 'IW'))
+.filter(ee.Filter.or(ee.Filter.eq('orbitProperties_pass','ASCENDING'),ee.Filter.eq('orbitProperties_pass','DESCENDING')))
+.filterBounds(aoi);
+
+
+
+
+// STACKED ALL BANDS
+var st1= c1.select('VH').mean().rename('VH1');
+var st2= c2.select('VH').mean().rename('VH2');
+var st3= c3.select('VH').mean().rename('VH3');
+var st4= c4.select('VH').mean().rename('VH4');
+var st5= c5.select('VH').mean().rename('VH5');
+var st6= c6.select('VH').mean().rename('VH6');
+
+var stacked= st1.addBands([st2,st3,st4,st5,st6]).clip(aoi);
+print(stacked);
+// var bands= ['VH2','VH4','VH9']
+Map.addLayer(stacked.select(['VH2','VH4','VH6']),{min:-30,max:-10},'stacked');
+// Map.addLayer(stacked,{},'stacked');
+
+
+// Rescale the image convert into 8 bit image
+var scale= stacked.multiply(10).add(325).uint8();
+Map.addLayer(scale.select(['VH2','VH4','VH6']),{min:0,max:240},'scaled IMG');
+// print(scale);
+
+var merge= rice.merge(buildup).merge(water).randomColumn();
+
+var train = merge.filter(ee.Filter.gt('random', 0.8));
+var test = merge.filter(ee.Filter.lte('random', 0.8));
+
+var trainSample = scale.sampleRegions({
+  collection: train,
+  scale: 10,
+  properties: ['class'],
+});
+var testSample = scale.sampleRegions({
+  collection: test,
+  scale: 10,
+  properties: ['class'],
+});
+var model = ee.Classifier.smileRandomForest(50).train(trainSample, 'class', scale.bandNames());
+var cm = testSample.classify(model, 'predict').errorMatrix('class', 'predict');
+print('Confusion matrix', cm, 'Accuracy', cm.accuracy(), 'Kappa', cm.kappa());
+
+var legend = {
+  'LULC_class_values': [0,1,2],
+  'LULC_class_palette': ['0d970e', 'fdffa2', '0b4a8b']};
+var lulc = scale.classify(model, 'LULC').toByte().set(legend);
+Map.addLayer(lulc, {}, 'LULC');
+var reduce= lulc.reduceRegion({reducer:ee.Reducer.mean(),
+geometry:aoi,
+scale:10,
+bestEffort:true, 
+});
+var rlulc= lulc.eq(0)
+var ricearea= ee.Image.pixelArea().multiply(rlulc);
+var vrice= ricearea.reduceRegion({reducer:ee.Reducer.sum(), geometry:aoi, scale:10,  bestEffort:true, maxPixels:1e16});
+var sqkm= ee.Number(vrice.get('area')).divide(1e6);
+print(sqkm);
+// sentinel 2
+var sen= dataset.filterDate('2023-06-01','2023-10-31')
+.filterBounds(aoi)
+.filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE',10));
+
+var fndvi= function(image){
+  var nd= image.normalizedDifference(['B8','B4']).rename('NDVI');
+  return image.addBands(nd);
+};
+var datandvi= sen.map(fndvi).mean().clip(aoi);
+var value= datandvi.reduceRegion({reducer:ee.Reducer.mean(), geometry:aoi, scale:10,  bestEffort:true, maxPixels:1e16});
+print(value.get('NDVI'));
+var fndvi= datandvi.select('NDVI');
+Map.addLayer(fndvi,Nvis,'ndvi');
+// calculate the yield
+
+// var pastData = ee.FeatureCollection([
+//   ee.Feature((74.8201, 32.4589), {ndvi: 0.6, yield: 1.5}),
+//   ee.Feature((74.6196, 32.4357), {ndvi: 0.7, yield: 1.8}),
+//   ee.Feature((74.3834, 32.4821), {ndvi: 0.8, yield: 2.1}),
+//   ee.Feature((74.7165, 32.358), {ndvi: 0.9, yield: 2.4}),
+// ]); // Example data - replace with your own
+
+// // // Calculate linear regression coefficients
+// var linearFit = pastData.reduceColumns({
+//   reducer: ee.Reducer.linearRegression({
+//     numX: 1,
+//     numY: 1
+//   }),
+//   selectors: ['ndvi', 'yield'] 
+// });
+
+// // // Get the slope and intercept
+// var a = linearFit.get('scale');
+// var b = linearFit.get('offset');
+
+// // // Calculate predicted yield for 2023
+// var predictedYield2023 = datandvi.select('NDVI').multiply(a).add(b);
+
+// print('Predicted Yield for 2023 (tons/hectare):', predictedYield2023.reduceRegion({
+//   reducer: ee.Reducer.mean(),
+//   geometry: aoi,
+//   scale: 10
+// }).get('NDVI')); // Get the predicted yield value
+
+// // Optionally add the predicted yield to the map
+// Map.addLayer(predictedYield2023, {min: 0, max: 3, palette: ['red', 'yellow', 'green']}, 'Predicted Yield 2023');
+
+var pastData = ee.FeatureCollection([
+  ee.Feature(null, {ndvi: 0.6, yield:1.5}),
+  ee.Feature(null, {ndvi: 0.7, yield:1.8}),
+  ee.Feature(null, {ndvi: 0.8, yield:2.1}),
+  ee.Feature(null, {ndvi: 0.9, yield:2.4}),
+]); // Example data - replace with your own
+
+// Calculate linear regression coefficients
+var linearFit = pastData.reduceColumns({
+  reducer: ee.Reducer.linearRegression({
+    numX: 1,
+    numY: 1
+  }),
+  selectors: ['ndvi', 'yield'] 
+});
+
+// Get the coefficients
+var coefficients = ee.Array(linearFit.get('coefficients'));
+var a = coefficients.get([-1, 0]); // Slope
+var b = coefficients.get([-1, 0]); // Intercept
+
+// Calculate predicted yield for 2023
+var predictedYield2023 = datandvi.select('NDVI').multiply(a).add(b);
+
+print('Predicted Yield for 2023 (tons/hectare):', predictedYield2023.reduceRegion({
+  reducer: ee.Reducer.mean(),
+  geometry: aoi,
+  scale: 10,
+  bestEffort:true,
+  maxPixels:1e16
+}).get('NDVI')); // Get the predicted yield value
+
+// Optionally add the predicted yield to the map
+Map.addLayer(predictedYield2023, {min: 0, max: 3, palette: ['red', 'yellow', 'green']}, 'Predicted Yield 2023');
